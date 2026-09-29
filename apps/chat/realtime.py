@@ -1,13 +1,22 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.db.models import Max
+from django.db.models import Max, Prefetch
 
 from apps.social import services as social
-from .models import ConversationMember, Message
+from .models import ConversationMember, Message, MessageAttachment
 
 
 def message_dict(m):
-    return {"id": m.id, "sender": m.sender.username, "content": m.content, "created_at": m.created_at.isoformat()}
+    atts = getattr(m, "_prefetched_objects_cache", {}).get("attachments")
+    if atts is None:
+        atts = list(m.attachments.all())
+    return {
+        "id": m.id,
+        "sender": m.sender.username,
+        "content": m.content,
+        "created_at": m.created_at.isoformat(),
+        "attachments": [a.as_dict() for a in atts],
+    }
 
 
 def broadcast(member_ids, payload):
@@ -39,3 +48,10 @@ def contacts_of(user):
 
 def valid_id(value):
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def messages_with_attachments(qs):
+    """Prefetch attachments so message_dict does not N+1."""
+    return qs.select_related("sender").prefetch_related(
+        Prefetch("attachments", queryset=MessageAttachment.objects.order_by("id"))
+    )

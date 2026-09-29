@@ -7,9 +7,10 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods, require_GET, require_POST
 from apps.social import services as social
+from . import attachments as att
 from . import calls, groups
-from .models import Conversation, ConversationMember, Message
-from .realtime import broadcast, mark_read, message_dict, valid_id
+from .models import Conversation, ConversationMember, Message, MessageAttachment
+from .realtime import broadcast, mark_read, message_dict, messages_with_attachments, valid_id
 
 User = get_user_model()
 
@@ -34,13 +35,27 @@ def _title(conv, user):
     other = _other(conv, user)
     return other.name if other else "Empty chat"
 
+def _preview_text(content, attachment_count=0):
+    text = (content or "").strip()
+    if text:
+        return text[:60]
+    if attachment_count:
+        return "📎 Attachment" if attachment_count == 1 else f"📎 {attachment_count} attachments"
+    return ""
+
 def _conv_json(conv, user, friends):
     """`friends` is the set of the viewer's friend ids, so a list of chats needs no per-chat query."""
     if hasattr(conv, "last_text"):
-        last = conv.last_text or ""
+        last = (conv.last_text or "").strip()
+        # Attachment-only messages leave content empty; show a neutral preview.
+        if not last and getattr(conv, "last_id", None):
+            last = "📎 Attachment"
     else:
-        m = conv.messages.last()
-        last = m.content if m else ""
+        m = conv.messages.prefetch_related("attachments").last()
+        if m:
+            last = _preview_text(m.content, m.attachments.count())
+        else:
+            last = ""
     is_group = conv.type == Conversation.GROUP
     other = None if is_group else _other(conv, user)
     title = _title(conv, user)
@@ -105,6 +120,12 @@ def conversations(request):
     friends = social.friend_ids(user)
     return JsonResponse({"conversations": [_conv_json(c, user, friends) for c in convs]})
 
+def _collect_uploads(request):
+    """Accept multipart field name `attachments` (multi) or `attachments[]`."""
+    files = request.FILES.getlist("attachments") or request.FILES.getlist("attachments[]")
+    return files
+
+
 @login_required
 @require_http_methods(["GET", "POST"])
 def messages(request, cid):
@@ -114,22 +135,66 @@ def messages(request, cid):
             other = _other(conv, request.user)
             if not other or not social.can_chat(request.user.pk, other.pk):
                 return JsonResponse({"error": "You can only message friends"}, status=403)
-        content = str(_body(request).get("content", "")).strip()
-        if not content or len(content) > 2000:
-            return JsonResponse({"error": "Message must be 1-2000 characters"}, status=400)
+
+        # JSON body or multipart form fields
+        if request.content_type and "multipart/form-data" in request.content_type:
+            content = str(request.POST.get("content", "")).strip()
+            uploads = _collect_uploads(request)
+        else:
+            body = _body(request)
+            content = str(body.get("content", "")).strip()
+            uploads = []
+
+        if content and len(content) > 2000:
+            return JsonResponse({"error": "Message must be at most 2000 characters"}, status=400)
+        if not content and not uploads:
+            return JsonResponse({"error": "Message must have text or attachments"}, status=400)
+        if len(uploads) > att.MAX_ATTACHMENTS:
+            return JsonResponse({"error": f"At most {att.MAX_ATTACHMENTS} attachments per message"}, status=400)
+
+        classified = []
+        for f in uploads:
+            try:
+                file_type, mime, name = att.classify(f)
+            except att.AttachmentError as e:
+                return JsonResponse({"error": e.message}, status=e.status)
+            classified.append((f, file_type, mime, name))
+
         m = Message.objects.create(conversation=conv, sender=request.user, content=content)
+        for f, file_type, mime, name in classified:
+            thumb = att.make_thumbnail(f, file_type)
+            try:
+                f.seek(0)
+            except Exception:
+                pass
+            row = MessageAttachment(
+                message=m,
+                original_name=name,
+                file_type=file_type,
+                mime_type=mime,
+                file_size=f.size,
+            )
+            row.file.save(name, f, save=False)
+            if thumb:
+                row.thumbnail.save("thumb.jpg", thumb, save=False)
+            row.save()
+
+        # Reload with attachments for the payload
+        m = Message.objects.select_related("sender").prefetch_related("attachments").get(pk=m.pk)
+        payload = message_dict(m)
         try:
             broadcast(list(conv.members.values_list("id", flat=True)),
-                      {"type": "message.new", "conversation": conv.id, "client_id": None, "message": message_dict(m)})
+                      {"type": "message.new", "conversation": conv.id, "client_id": None, "message": payload})
         except Exception:
             pass
-        return JsonResponse(_msg_json(m, request.user), status=201)
+        return JsonResponse({**payload, "mine": True}, status=201)
+
     rows = list(ConversationMember.objects.filter(conversation=conv)
                 .values_list("user__username", "user_id", "last_read_id", "joined_at"))
     mine = next((r for r in rows if r[1] == request.user.id), None)
     if mine is None:  # removed a moment ago
         raise Http404("Not a member")
-    qs = conv.messages.select_related("sender").filter(created_at__gte=mine[3])  # nothing from before you joined
+    qs = messages_with_attachments(conv.messages.filter(created_at__gte=mine[3]))  # nothing from before you joined
     after = request.GET.get("after", "")
     if after.isdigit():
         qs = qs.filter(id__gt=int(after))

@@ -8,18 +8,43 @@ let online = new Set(), reads = {}, readSent = 0, incomingId = 0;  // reads: use
 const typers = new Map(); let lastSender = null, modalFor = null;
 const seen = new Set(), pending = new Map();
 let friendsState = {friends: [], incoming: [], outgoing: []}, results = [], toastTimer = null;
+/** @type {{file: File, url?: string, kind: string}[]} */
+let pendingFiles = [];
+const MAX_ATTACH = 10;
+const ACCEPT_EXT = /\.(jpe?g|png|webp|gif|mp4|webm|mov|pdf|docx?|xlsx?|pptx?|txt|zip)$/i;
 
 async function api(url, opts = {}) {
-  const r = await fetch(url, {
-    credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf()}, ...opts
-  });
+  const headers = {'X-CSRFToken': csrf(), ...(opts.headers || {})};
+  if (opts.body && !(opts.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const r = await fetch(url, {credentials: 'same-origin', ...opts, headers});
   if (!r.ok) {
     let msg = r.status;
     try { msg = (await r.json()).error || msg; } catch (e) {}
     throw new Error(msg);
   }
   return r.json();
+}
+
+function formatSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+function fileKind(name) {
+  const e = (name || '').split('.').pop().toLowerCase();
+  if (/^(jpe?g|png|webp|gif)$/.test(e)) return 'image';
+  if (/^(mp4|webm|mov)$/.test(e)) return 'video';
+  if (e === 'zip') return 'archive';
+  return 'document';
+}
+function previewLine(content, attachments) {
+  const t = (content || '').trim();
+  if (t) return t.slice(0, 60);
+  const n = (attachments && attachments.length) || 0;
+  if (!n) return '';
+  return n === 1 ? '📎 Attachment' : '📎 ' + n + ' attachments';
 }
 
 function wsSend(payload) {
@@ -132,7 +157,8 @@ function renderHead() {
 function syncComposer() {
   const c = convList.find(x => x.id === current);
   const ok = !!c && c.can_send;
-  $('text').disabled = $('send').disabled = !ok;
+  $('text').disabled = $('send').disabled = $('attach-btn').disabled = !ok;
+  if (!ok) clearPendingFiles();
   const lock = $('locked'); lock.replaceChildren();
   lock.hidden = !c || ok;
   if (c && !ok) {
@@ -187,6 +213,40 @@ function syncRead() {
     .catch(() => { if (cid === current && readSent === upto) readSent = prev; });
 }
 
+function renderAttachment(a, container) {
+  const kind = a.file_type || fileKind(a.original_name);
+  if (kind === 'image') {
+    const fig = document.createElement('button');
+    fig.type = 'button'; fig.className = 'att-img';
+    const img = document.createElement('img');
+    img.src = a.thumbnail || a.url; img.alt = a.original_name || 'Image'; img.loading = 'lazy';
+    fig.append(img);
+    fig.onclick = () => openLightbox('image', a.url, a.original_name);
+    container.append(fig);
+    return;
+  }
+  if (kind === 'video') {
+    const wrap = document.createElement('div'); wrap.className = 'att-video';
+    const v = document.createElement('video');
+    v.src = a.url; v.controls = true; v.preload = 'metadata'; v.playsInline = true;
+    wrap.append(v); container.append(wrap);
+    return;
+  }
+  const card = document.createElement('a');
+  card.className = 'att-file'; card.href = a.url; card.target = '_blank'; card.rel = 'noopener';
+  card.download = a.original_name || '';
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.setAttribute('class', 'i'); icon.innerHTML = '<use href="#i-file"/>';
+  const meta = document.createElement('span'); meta.className = 'att-meta';
+  const name = document.createElement('span'); name.className = 'att-name'; name.textContent = a.original_name || 'File';
+  const size = document.createElement('span'); size.className = 'att-size'; size.textContent = formatSize(a.file_size || 0);
+  meta.append(name, size);
+  const dl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  dl.setAttribute('class', 'i att-dl'); dl.innerHTML = '<use href="#i-download"/>';
+  card.append(icon, meta, dl);
+  container.append(card);
+}
+
 function drawBubble(m, isPending) {
   const c = curConv();
   if (c && c.type === 'group' && m.sender !== ME && m.sender !== lastSender) {  // name once per run of messages
@@ -195,10 +255,24 @@ function drawBubble(m, isPending) {
   }
   lastSender = m.sender;
   const d = document.createElement('div');
-  d.className = 'msg ' + (m.sender === ME ? 'mine' : 'theirs') + (isPending ? ' pending' : '');
-  d.textContent = m.content;
+  const hasAtt = m.attachments && m.attachments.length;
+  d.className = 'msg ' + (m.sender === ME ? 'mine' : 'theirs') + (isPending ? ' pending' : '') + (hasAtt ? ' has-att' : '');
   d.title = m.sender + (m.created_at ? ' · ' + new Date(m.created_at).toLocaleString() : '');
   if (m.id) d.dataset.id = m.id;
+  if (hasAtt) {
+    const box = document.createElement('div'); box.className = 'att-list';
+    m.attachments.forEach(a => renderAttachment(a, box));
+    d.append(box);
+  }
+  if ((m.content || '').trim()) {
+    const t = document.createElement('div'); t.className = 'msg-text'; t.textContent = m.content;
+    d.append(t);
+  }
+  if (isPending && m._progress != null) {
+    const bar = document.createElement('div'); bar.className = 'upload-bar';
+    const fill = document.createElement('div'); fill.className = 'upload-fill'; fill.style.width = m._progress + '%';
+    bar.append(fill); d.append(bar);
+  }
   $('messages').append(d);
   return d;
 }
@@ -211,9 +285,29 @@ function addMsg(m) {
 function confirmMsg(el, m) {
   if (seen.has(m.id)) { el.remove(); return; }
   seen.add(m.id); lastId = Math.max(lastId, m.id);
-  el.dataset.id = m.id;
-  el.classList.remove('pending', 'failed');
-  el.title = m.sender + ' · ' + new Date(m.created_at).toLocaleString();
+  // Rebuild the bubble in place so attachment URLs become the server ones.
+  const next = el.nextSibling;
+  const parent = el.parentNode;
+  el.remove();
+  const saved = lastSender;
+  lastSender = m.sender;  // avoid duplicate group name labels
+  const rebuilt = document.createElement('div');
+  const hasAtt = m.attachments && m.attachments.length;
+  rebuilt.className = 'msg ' + (m.sender === ME ? 'mine' : 'theirs') + (hasAtt ? ' has-att' : '');
+  rebuilt.title = m.sender + ' · ' + new Date(m.created_at).toLocaleString();
+  rebuilt.dataset.id = m.id;
+  if (hasAtt) {
+    const box = document.createElement('div'); box.className = 'att-list';
+    m.attachments.forEach(a => renderAttachment(a, box));
+    rebuilt.append(box);
+  }
+  if ((m.content || '').trim()) {
+    const t = document.createElement('div'); t.className = 'msg-text'; t.textContent = m.content;
+    rebuilt.append(t);
+  }
+  lastSender = saved;
+  if (parent) parent.insertBefore(rebuilt, next);
+  else $('messages').append(rebuilt);
 }
 function stick(fn, force) {
   const b = $('messages');
@@ -248,7 +342,7 @@ function openConv(id, title) {
   document.querySelector('.layout').classList.add('open');
   if (id === current) return;
   current = id; lastId = 0; ready = false; buffer = []; seen.clear(); pending.clear();
-  reads = {}; readSent = 0; incomingId = 0; lastSender = null; clearTyping();
+  reads = {}; readSent = 0; incomingId = 0; lastSender = null; clearTyping(); clearPendingFiles();
   const c = convList.find(x => x.id === id); if (c) c.unread = 0;
   $('messages').replaceChildren(); showStatus('');
   renderConvs();
@@ -259,35 +353,81 @@ function openConv(id, title) {
 
 function closeChat() {  // the open chat is gone (you left it, or were removed)
   current = null; lastId = 0; ready = false; buffer = []; seen.clear(); pending.clear();
-  reads = {}; readSent = 0; incomingId = 0; lastSender = null; clearTyping();
+  reads = {}; readSent = 0; incomingId = 0; lastSender = null; clearTyping(); clearPendingFiles();
   $('messages').replaceChildren(); showStatus('');
   document.querySelector('.layout').classList.remove('open');
 }
 
-async function httpSend(cid, content, el, clientId) {
+function uploadWithProgress(url, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('X-CSRFToken', csrf());
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      let body = null;
+      try { body = JSON.parse(xhr.responseText); } catch (err) {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error((body && body.error) || xhr.status));
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(formData);
+  });
+}
+
+async function httpSend(cid, content, files, el, clientId) {
   try {
-    const m = await api(`/api/conversations/${cid}/messages/`, {method: 'POST', body: JSON.stringify({content})});
+    let m;
+    if (files && files.length) {
+      const fd = new FormData();
+      fd.append('content', content || '');
+      files.forEach(f => fd.append('attachments', f.file, f.file.name));
+      m = await uploadWithProgress(`/api/conversations/${cid}/messages/`, fd, pct => {
+        if (el && el.isConnected) {
+          const fill = el.querySelector('.upload-fill');
+          if (fill) fill.style.width = pct + '%';
+        }
+      });
+    } else {
+      m = await api(`/api/conversations/${cid}/messages/`, {method: 'POST', body: JSON.stringify({content})});
+    }
     pending.delete(clientId);
     if (cid === current) confirmMsg(el, m);
-  } catch (e) { el.classList.add('failed'); el.title = 'Not sent'; }
+  } catch (e) {
+    if (el) { el.classList.add('failed'); el.title = e.message || 'Not sent'; }
+  }
 }
 let lastSent = {text: '', at: 0};
 function send() {
   const t = $('text'), content = t.value.trim();
   const conv = convList.find(x => x.id === current);
-  if (!content || !current || !conv || !conv.can_send) return;
+  const files = pendingFiles.slice();
+  if ((!content && !files.length) || !current || !conv || !conv.can_send) return;
   const now = Date.now();
-  if (content === lastSent.text && now - lastSent.at < 500) return;
+  if (!files.length && content === lastSent.text && now - lastSent.at < 500) return;
   lastSent = {text: content, at: now};
   t.value = ''; lastTyping = 0;
+  clearPendingFiles();
   const cid = current;
   const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random();
+  const optimisticAtts = files.map(f => ({
+    original_name: f.file.name, file_type: f.kind, file_size: f.file.size,
+    url: f.url || '', thumbnail: f.kind === 'image' ? f.url : null,
+  }));
   let el;
-  stick(() => { el = drawBubble({sender: ME, content}, true); }, true);
+  stick(() => {
+    el = drawBubble({sender: ME, content, attachments: optimisticAtts, _progress: files.length ? 0 : null}, true);
+  }, true);
   pending.set(clientId, el);
-  if (wsSend({type: 'message', conversation: cid, content, client_id: clientId})) {
+  // Attachments always go over HTTP (multipart); text-only can use the WebSocket.
+  if (!files.length && wsSend({type: 'message', conversation: cid, content, client_id: clientId})) {
     setTimeout(() => { if (pending.has(clientId)) { el.classList.add('failed'); el.title = 'Not sent'; } }, 10000);
-  } else httpSend(cid, content, el, clientId);
+  } else {
+    httpSend(cid, content, files, el, clientId);
+  }
 }
 $('send').onclick = send;
 $('text').onkeydown = e => { if (e.key === 'Enter' && !e.repeat && !e.isComposing) send(); };
@@ -295,6 +435,102 @@ $('text').oninput = () => {
   const now = Date.now();
   if (current && $('text').value && now - lastTyping > 2000 && wsSend({type: 'typing', conversation: current})) lastTyping = now;
 };
+
+// ---- attachments (composer) -------------------------------------------------
+function clearPendingFiles() {
+  pendingFiles.forEach(f => { if (f.url) URL.revokeObjectURL(f.url); });
+  pendingFiles = [];
+  renderAttachPreview();
+}
+function renderAttachPreview() {
+  const box = $('attach-preview');
+  box.replaceChildren();
+  if (!pendingFiles.length) { box.hidden = true; return; }
+  box.hidden = false;
+  pendingFiles.forEach((f, i) => {
+    const chip = document.createElement('div'); chip.className = 'attach-chip kind-' + f.kind;
+    if (f.kind === 'image' && f.url) {
+      const img = document.createElement('img'); img.src = f.url; img.alt = ''; chip.append(img);
+    } else if (f.kind === 'video' && f.url) {
+      const v = document.createElement('video'); v.src = f.url; v.muted = true; v.preload = 'metadata'; chip.append(v);
+    } else {
+      const ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      ic.setAttribute('class', 'i'); ic.innerHTML = '<use href="#i-file"/>';
+      chip.append(ic);
+    }
+    const lab = document.createElement('span'); lab.className = 'attach-chip-name';
+    lab.textContent = f.file.name; lab.title = f.file.name + ' · ' + formatSize(f.file.size);
+    chip.append(lab);
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'attach-chip-x'; x.setAttribute('aria-label', 'Remove');
+    x.textContent = '×';
+    x.onclick = () => {
+      if (pendingFiles[i] && pendingFiles[i].url) URL.revokeObjectURL(pendingFiles[i].url);
+      pendingFiles.splice(i, 1);
+      renderAttachPreview();
+    };
+    chip.append(x);
+    box.append(chip);
+  });
+}
+function addFiles(list) {
+  const room = MAX_ATTACH - pendingFiles.length;
+  if (room <= 0) { toast('At most ' + MAX_ATTACH + ' files per message'); return; }
+  const incoming = [...list].slice(0, room);
+  for (const file of incoming) {
+    if (!ACCEPT_EXT.test(file.name)) {
+      toast('Unsupported file: ' + file.name);
+      continue;
+    }
+    const kind = fileKind(file.name);
+    const entry = {file, kind};
+    if (kind === 'image' || kind === 'video') entry.url = URL.createObjectURL(file);
+    pendingFiles.push(entry);
+  }
+  renderAttachPreview();
+}
+$('attach-btn').onclick = () => { if (!$('attach-btn').disabled) $('attach-input').click(); };
+$('attach-input').onchange = e => {
+  if (e.target.files && e.target.files.length) addFiles(e.target.files);
+  e.target.value = '';
+};
+// Drag-and-drop onto the composer area
+(function () {
+  const section = document.querySelector('section');
+  let dragDepth = 0;
+  section.addEventListener('dragenter', e => {
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault(); dragDepth++; section.classList.add('drag-over');
+  });
+  section.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) section.classList.remove('drag-over'); });
+  section.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+  section.addEventListener('drop', e => {
+    e.preventDefault(); dragDepth = 0; section.classList.remove('drag-over');
+    const c = convList.find(x => x.id === current);
+    if (!c || !c.can_send) return;
+    if (e.dataTransfer.files && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  });
+})();
+
+// ---- lightbox ----------------------------------------------------------------
+function openLightbox(kind, url, name) {
+  const lb = $('lightbox'), body = $('lightbox-body');
+  body.replaceChildren();
+  if (kind === 'image') {
+    const img = document.createElement('img'); img.src = url; img.alt = name || ''; body.append(img);
+  } else if (kind === 'video') {
+    const v = document.createElement('video'); v.src = url; v.controls = true; v.autoplay = true; body.append(v);
+  }
+  lb.hidden = false;
+}
+function closeLightbox() {
+  $('lightbox').hidden = true;
+  $('lightbox-body').replaceChildren();
+}
+$('lightbox-close').onclick = closeLightbox;
+$('lightbox').onclick = e => { if (e.target === $('lightbox')) closeLightbox(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('lightbox').hidden) closeLightbox();
+});
 
 function handle(ev) {
   if (ev.type === 'message.new') {
@@ -305,7 +541,7 @@ function handle(ev) {
       if (c && !mine && cid !== current) { c.unread = (c.unread || 0) + 1; renderConvs(); }
     }).catch(() => {});
     else {
-      conv.last = m.content.slice(0, 60);
+      conv.last = previewLine(m.content, m.attachments);
       if (!mine && cid !== current) conv.unread = (conv.unread || 0) + 1;
       convList = [conv, ...convList.filter(c => c !== conv)];
       renderConvs();

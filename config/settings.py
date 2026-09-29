@@ -33,6 +33,10 @@ if _railway_domain and _railway_domain not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(_railway_domain)
 if ON_RAILWAY and "healthcheck.railway.app" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("healthcheck.railway.app")  # Railway's deploy healthcheck uses this Host header
+if ON_RAILWAY and ".up.railway.app" not in ALLOWED_HOSTS:
+    # Any Railway-generated domain. RAILWAY_PUBLIC_DOMAIN only names one of them and goes stale when the
+    # domain is renamed or a second one is added, which made Django answer "Bad Request (400)".
+    ALLOWED_HOSTS.append(".up.railway.app")
 
 # Unless set explicitly, trust https://<each real host> (a leading dot means all subdomains).
 CSRF_TRUSTED_ORIGINS = _csv("CSRF_TRUSTED_ORIGINS")
@@ -136,13 +140,17 @@ if not DEBUG:
         "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
     }
 
-# --- Uploaded profile photos ------------------------------------------------------------------
+# --- Uploaded profile photos & chat attachments -----------------------------------------------
 # Railway's disk is wiped on every deploy. Attach a Volume to the service: Railway then exposes its
 # mount path as RAILWAY_VOLUME_MOUNT_PATH and photos are kept in <volume>/media. MEDIA_ROOT overrides.
 _volume = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
 MEDIA_URL = "media/"
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT") or (Path(_volume) / "media" if _volume else BASE_DIR / "media"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+# Chat attachments: videos up to 100 MB; keep request body slightly above that.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024  # larger files spill to temp disk
+FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 50
 
 # --- Logging: Railway shows stdout/stderr, so send errors there when DEBUG is off -------------
 if not DEBUG:
