@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% load static %}{% block title %}Edit profile · VibeChat{% endblock %}
+{% block body %}
+<main class="card profile">
+  <a class="back" href="/u/{{ request.user.username }}/">← Back to profile</a>
+  <h2>Edit profile</h2>
+  {% include "_avatar.html" with u=current size="xl" %}
+  <form method="post" enctype="multipart/form-data">{% csrf_token %}
+    {{ form.as_p }}
+    <div class="actions"><button>Save</button> <a class="btn secondary" href="/u/{{ request.user.username }}/">Cancel</a></div>
+  </form>
+</main>
+{% endblock %}

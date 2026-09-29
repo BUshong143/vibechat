@@ -1,0 +1,11 @@
+# railway.toml
+[deploy]
+# Daphne serves HTTP and WebSockets from the same ASGI app. --proxy-headers makes it trust Railway's
+# X-Forwarded-* headers. One process / one replica: presence, calls and watch state are in-memory
+# unless REDIS_URL is set.
+startCommand = "python manage.py migrate --noinput && python manage.py collectstatic --noinput && daphne -b 0.0.0.0 -p $PORT --proxy-headers --access-log - config.asgi:application"
+healthcheckPath = "/healthz/"
+healthcheckTimeout = 120
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

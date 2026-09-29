@@ -1,0 +1,61 @@
+{% extends "base.html" %}{% load static %}{% block title %}Messenger · VibeChat{% endblock %}
+{% block body %}
+<div class="layout" data-me="{{ request.user.username }}">
+  <aside>
+    <header>
+      <a class="me" href="/u/{{ request.user.username }}/" title="Your profile">
+        {% include "_avatar.html" with u=request.user size="sm" %}<strong>{{ request.user.name }}</strong>
+      </a>
+      <form method="post" action="/logout/">{% csrf_token %}<button class="link">Log out</button></form>
+    </header>
+    <input id="search" placeholder="Search people…" autocomplete="off">
+    <ul id="results"></ul>
+    <div class="tabs">
+      <button class="on" data-tab="chats">Chats</button>
+      <button data-tab="friends">Friends<span id="req-badge" class="pill" hidden></span></button>
+    </div>
+    <div id="newgroup-row"><button id="new-group" class="secondary" type="button">+ New group</button></div>
+    <ul id="convs"></ul>
+    <div id="friends" hidden></div>
+  </aside>
+  <section>
+    <div id="conn" hidden>Reconnecting…</div>
+    <header id="chat-head"><span id="chat-avatar"></span><a id="chat-title">Select a conversation</a><small id="chat-presence"></small><button id="chat-watch" class="secondary" type="button" hidden>Watch together</button><button id="chat-call" class="secondary" type="button" hidden>Video call</button><button id="chat-info" class="secondary" type="button" hidden>Group info</button></header>
+    <div id="messages"></div>
+    <div id="status"></div>
+    <div id="locked" hidden></div>
+    <div class="composer"><input id="text" placeholder="Type a message…" maxlength="2000" disabled><button id="send" disabled>Send</button></div>
+  </section>
+  <div id="toast" hidden></div>
+  <div id="watch" hidden role="dialog" aria-label="Watch together">
+    <div id="watch-bar">
+      <strong id="watch-title"></strong>
+      <input id="watch-url" placeholder="Paste a YouTube, Vimeo or video file link…" autocomplete="off" maxlength="500">
+      <button id="watch-go" type="button">Watch</button>
+      <button id="watch-call" class="secondary" type="button" hidden>Start call</button>
+      <button id="watch-leave" class="secondary" type="button">Leave</button>
+      <button id="watch-stop" class="danger" type="button" hidden>Stop for both</button>
+    </div>
+    <div id="watch-msg"></div>
+    <div id="watch-stage"></div>
+    <button id="watch-resume" type="button" hidden>▶ Tap to join playback</button>
+  </div>
+  <div id="call" hidden role="dialog" aria-label="Video call">
+    <video id="call-remote" autoplay playsinline></video>
+    <video id="call-local" autoplay playsinline muted></video>
+    <div id="call-info"><strong id="call-name"></strong><span id="call-state"></span></div>
+    <div id="call-controls">
+      <button id="call-accept" class="ok" type="button" hidden>Accept</button>
+      <button id="call-mic" class="secondary" type="button" hidden>Mute</button>
+      <button id="call-cam" class="secondary" type="button" hidden>Camera off</button>
+      <button id="call-share" class="secondary" type="button" hidden>Share screen</button>
+      <button id="call-watch" class="secondary" type="button" hidden>Watch together</button>
+      <button id="call-end" class="danger" type="button">Hang up</button>
+    </div>
+  </div>
+  <div id="modal" hidden><div class="sheet" role="dialog" aria-modal="true"></div></div>
+</div>
+<script src="{% static 'js/app.js' %}"></script>
+<script src="{% static 'js/call.js' %}"></script>
+<script src="{% static 'js/watch.js' %}"></script>
+{% endblock %}

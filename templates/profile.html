@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% load static %}{% block title %}{{ person.name }} · VibeChat{% endblock %}
+{% block body %}
+<main class="card profile" data-username="{{ person.username }}">
+  <a class="back" href="/app/">← Back to chats</a>
+  {% include "_avatar.html" with u=person size="xl" %}
+  <h1>{{ person.name }}</h1>
+  <p class="handle">@{{ person.username }}</p>
+  <p class="meta">Member since {{ person.date_joined|date:"F Y" }}</p>
+  <p id="err" class="error" hidden></p>
+  <div class="actions">
+    {% if rel == "self" %}
+      <a class="btn" href="/profile/edit/">Edit profile</a>
+    {% elif rel == "friends" %}
+      <button data-act="message">Message</button>
+      <button class="secondary" data-act="remove" data-confirm="Remove {{ person.name }} from your friends?">Unfriend</button>
+    {% elif rel == "incoming" %}
+      <p class="note">{{ person.name }} wants to be your friend.</p>
+      <button data-act="accept">Accept</button>
+      <button class="secondary" data-act="decline">Decline</button>
+    {% elif rel == "outgoing" %}
+      <p class="note">Friend request sent.</p>
+      <button class="secondary" data-act="cancel">Cancel request</button>
+    {% else %}
+      <button data-act="request">Add friend</button>
+    {% endif %}
+  </div>
+</main>
+<script src="{% static 'js/profile.js' %}"></script>
+{% endblock %}

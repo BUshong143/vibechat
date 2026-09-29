@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% load static %}{% block title %}Register · VibeChat{% endblock %}
+{% block body %}<main class="card"><h1>💬 VibeChat</h1><h2>Create account</h2>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button>Register</button></form>
+<p>Have an account? <a href="/login/">Log in</a></p></main><script src="{% static 'js/password.js' %}"></script>{% endblock %}
