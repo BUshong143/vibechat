@@ -162,7 +162,36 @@ function syncCallMini() {
   $('call').classList.toggle('mini', mini);
   if (!mini) { const st = $('call').style; st.left = st.top = st.right = ''; }   // forget where the tile was dragged
   $('watch-call').hidden = !W || !!call || !curConv();
+  const dock = $('watch-dock'), controls = $('call-controls'), home = mini ? dock : $('call');
+  dock.hidden = !mini;
+  if (controls.parentNode !== home) home.append(controls);
+  revealDock();
 }
+
+const DOCK_HIDE_MS = 3000, DOCK_GUARD_MS = 400;
+let dockSeen = 0, dockShownAt = 0;
+
+function dockIdle() {
+  const playing = !!(W && W.engine && W.engine.model.playing && !W.engine.blocked);
+  return playing && performance.now() - dockSeen > DOCK_HIDE_MS;
+}
+
+function syncDock() {
+  const dock = $('watch-dock');
+  const idle = dockIdle();
+  if (dock.classList.contains('idle') && !idle) dockShownAt = performance.now();
+  dock.classList.toggle('idle', idle);
+}
+
+function revealDock() { dockSeen = performance.now(); syncDock(); }
+
+['pointerdown', 'pointermove', 'touchstart', 'mouseenter'].forEach(name => {
+  ['watch-dock', 'watch-bar', 'watch-stage'].forEach(id => $(id).addEventListener(name, revealDock, {passive: true}));
+});
+$('watch-dock').addEventListener('click', e => {
+  if (performance.now() - dockShownAt < DOCK_GUARD_MS) { e.stopPropagation(); e.preventDefault(); }
+}, true);
+setInterval(syncDock, 300);
 
 function openWatch(cid) {
   const c = convList.find(x => x.id === cid);
