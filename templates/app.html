@@ -1,5 +1,19 @@
 {% extends "base.html" %}{% load static %}{% block title %}Messenger · VibeChat{% endblock %}
 {% block body %}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="6" width="13" height="12" rx="3"/><path d="M15 10.5l6-3.5v10l-6-3.5z"/></symbol>
+  <symbol id="i-video-off" viewBox="0 0 24 24"><rect x="2" y="6" width="13" height="12" rx="3"/><path d="M15 10.5l6-3.5v10l-6-3.5z"/><path d="M3 3l18 18"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></symbol>
+  <symbol id="i-mic-off" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/><path d="M3 3l18 18"/></symbol>
+  <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-watch" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2.5"/><path d="M10 8.5v5l4.5-2.5z" fill="currentColor"/><path d="M8 21h8"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M12 16v-5M12 7.5h.01"/></symbol>
+</defs></svg>
 <div class="layout" data-me="{{ request.user.username }}">
   <aside>
     <header>
@@ -20,21 +34,30 @@
   </aside>
   <section>
     <div id="conn" hidden>Reconnecting…</div>
-    <header id="chat-head"><span id="chat-avatar"></span><a id="chat-title">Select a conversation</a><small id="chat-presence"></small><button id="chat-watch" class="secondary" type="button" hidden>Watch together</button><button id="chat-call" class="secondary" type="button" hidden>Video call</button><button id="chat-info" class="secondary" type="button" hidden>Group info</button></header>
+    <header id="chat-head">
+      <button id="chat-back" class="ib" type="button" aria-label="Back to chats" title="Back"><svg class="i "><use href="#i-back"/></svg></button>
+      <span id="chat-avatar"></span>
+      <div class="head-txt"><a id="chat-title">Select a conversation</a><small id="chat-presence"></small></div>
+      <button id="chat-watch" class="ib" type="button" aria-label="Watch together" title="Watch together" hidden><svg class="i "><use href="#i-watch"/></svg></button>
+      <button id="chat-call" class="ib" type="button" aria-label="Video call" title="Video call" hidden><svg class="i "><use href="#i-video"/></svg></button>
+      <button id="chat-info" class="ib" type="button" aria-label="Group info" title="Group info" hidden><svg class="i "><use href="#i-info"/></svg></button>
+    </header>
     <div id="messages"></div>
     <div id="status"></div>
     <div id="locked" hidden></div>
-    <div class="composer"><input id="text" placeholder="Type a message…" maxlength="2000" disabled><button id="send" disabled>Send</button></div>
+    <div class="composer"><input id="text" placeholder="Type a message…" maxlength="2000" disabled><button id="send" aria-label="Send" title="Send" disabled><svg class="i "><use href="#i-send"/></svg></button></div>
   </section>
   <div id="toast" hidden></div>
   <div id="watch" hidden role="dialog" aria-label="Watch together">
     <div id="watch-bar">
+      <button id="watch-leave" class="ib" type="button" aria-label="Leave" title="Leave"><svg class="i "><use href="#i-back"/></svg></button>
       <strong id="watch-title"></strong>
-      <input id="watch-url" placeholder="Paste a YouTube, Vimeo or video file link…" autocomplete="off" maxlength="500">
-      <button id="watch-go" type="button">Watch</button>
-      <button id="watch-call" class="secondary" type="button" hidden>Start call</button>
-      <button id="watch-leave" class="secondary" type="button">Leave</button>
-      <button id="watch-stop" class="danger" type="button" hidden>Stop for both</button>
+      <button id="watch-call" class="ib" type="button" aria-label="Start call" title="Start call" hidden><svg class="i "><use href="#i-video"/></svg></button>
+      <button id="watch-stop" class="ib danger" type="button" aria-label="Stop for both" title="Stop for both" hidden><svg class="i "><use href="#i-stop"/></svg></button>
+      <div class="watch-url-row">
+        <input id="watch-url" placeholder="Paste a YouTube, Vimeo or video link…" autocomplete="off" maxlength="500">
+        <button id="watch-go" type="button" aria-label="Watch" title="Watch"><svg class="i "><use href="#i-play"/></svg></button>
+      </div>
     </div>
     <div id="watch-msg"></div>
     <div id="watch-stage"></div>
@@ -43,14 +66,15 @@
   <div id="call" hidden role="dialog" aria-label="Video call">
     <video id="call-remote" autoplay playsinline></video>
     <video id="call-local" autoplay playsinline muted></video>
-    <div id="call-info"><strong id="call-name"></strong><span id="call-state"></span></div>
+    <div id="call-avatar"></div>
+    <div id="call-info"><strong id="call-name"></strong><span id="call-state"></span><span id="call-muted" hidden><svg class="i"><use href="#i-mic-off"/></svg>Muted</span></div>
     <div id="call-controls">
-      <button id="call-accept" class="ok" type="button" hidden>Accept</button>
-      <button id="call-mic" class="secondary" type="button" hidden>Mute</button>
-      <button id="call-cam" class="secondary" type="button" hidden>Camera off</button>
-      <button id="call-share" class="secondary" type="button" hidden>Share screen</button>
-      <button id="call-watch" class="secondary" type="button" hidden>Watch together</button>
-      <button id="call-end" class="danger" type="button">Hang up</button>
+      <button id="call-accept" class="cbtn ok" type="button" aria-label="Accept" title="Accept" hidden><svg class="i "><use href="#i-phone"/></svg></button>
+      <button id="call-cam" class="cbtn tgl" type="button" aria-label="Camera off" title="Camera off" hidden><svg class="i i-on"><use href="#i-video"/></svg><svg class="i i-off"><use href="#i-video-off"/></svg></button>
+      <button id="call-mic" class="cbtn tgl" type="button" aria-label="Mute" title="Mute" hidden><svg class="i i-on"><use href="#i-mic"/></svg><svg class="i i-off"><use href="#i-mic-off"/></svg></button>
+      <button id="call-share" class="cbtn" type="button" aria-label="Share screen" title="Share screen" hidden><svg class="i "><use href="#i-screen"/></svg></button>
+      <button id="call-watch" class="cbtn" type="button" aria-label="Watch together" title="Watch together" hidden><svg class="i "><use href="#i-watch"/></svg></button>
+      <button id="call-end" class="cbtn danger" type="button" aria-label="Hang up" title="Hang up"><svg class="i "><use href="#i-phone"/></svg></button>
     </div>
   </div>
   <div id="modal" hidden><div class="sheet" role="dialog" aria-modal="true"></div></div>

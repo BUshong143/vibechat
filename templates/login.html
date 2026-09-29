@@ -1,4 +1,20 @@
 {% extends "base.html" %}{% load static %}{% block title %}Log in · VibeChat{% endblock %}
-{% block body %}<main class="card"><h1>💬 VibeChat</h1><h2>Log in</h2>
-<form method="post">{% csrf_token %}{{ form.as_p }}<button>Log in</button></form>
-<p>No account? <a href="/register/">Register</a></p></main><script src="{% static 'js/password.js' %}"></script>{% endblock %}
+{% block bodyclass %}auth{% endblock %}
+{% block body %}
+{% include "_auth_icons.html" %}
+<div class="auth-page">
+  {% include "_auth_brand.html" with tagline="Chat, call and watch together." %}
+  <main class="auth-card">
+    <h2>Welcome back</h2>
+    <p class="sub">Log in to pick up where you left off.</p>
+    <form method="post" novalidate>{% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+      {% if form.non_field_errors %}<div class="alert" role="alert"><svg class="i"><use href="#i-alert"/></svg><div>{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div></div>{% endif %}
+      {% for field in form %}{% include "_auth_field.html" %}{% endfor %}
+      <button class="submit" type="submit"><span>Log in</span></button>
+    </form>
+    <p class="switch">New here? <a href="/register/">Create an account</a></p>
+  </main>
+</div>
+<script src="{% static 'js/password.js' %}"></script><script src="{% static 'js/auth.js' %}"></script>
+{% endblock %}

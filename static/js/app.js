@@ -570,6 +570,7 @@ function openGroupInfo() {
 }
 $('new-group').onclick = openNewGroup;
 $('chat-info').onclick = openGroupInfo;
+$('chat-back').onclick = () => document.querySelector('.layout').classList.remove('open');  // phones: back to the chat list
 
 // ---- search --------------------------------------------------------------------------
 function statusOf(u) {  // trust live friend data over the moment the search ran

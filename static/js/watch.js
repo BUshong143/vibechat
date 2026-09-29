@@ -151,13 +151,16 @@ function syncWatchButton() {
   const c = curConv();
   const b = $('chat-watch');
   b.hidden = !c || c.type === 'group' || !c.can_send;
-  b.textContent = c && watchSessions.has(c.id) ? 'Join video' : 'Watch together';
+  const live = !!(c && watchSessions.has(c.id)), label = live ? 'Join video' : 'Watch together';
+  b.setAttribute('aria-label', label); b.title = label; b.classList.toggle('live', live);
 }
 
 // Shrinks the call to a corner tile while a video is on screen.
 function syncCallMini() {
   const inCall = !!call && (call.state === 'active' || call.state === 'connecting');
-  $('call').classList.toggle('mini', !!W && inCall);
+  const mini = !!W && inCall;
+  $('call').classList.toggle('mini', mini);
+  if (!mini) { const st = $('call').style; st.left = st.top = st.right = ''; }   // forget where the tile was dragged
   $('watch-call').hidden = !W || !!call || !curConv();
 }
 

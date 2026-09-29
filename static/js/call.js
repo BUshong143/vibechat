@@ -5,6 +5,8 @@ const RING_MS = 45000, DISCONNECT_MS = 10000;
 let call = null;   // {id, conv, peer, name, role: 'caller'|'callee', state, pc, stream, ...}
 let ringtone = null;
 
+function setLabel(id, text) { const b = $(id); b.setAttribute('aria-label', text); b.title = text; }
+
 const callId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36).padEnd(8, '0'));
 
 // ---- small helpers ---------------------------------------------------------------------
@@ -20,10 +22,13 @@ function callUi(state, text) {
   $('call-mic').hidden = $('call-cam').hidden = ringing || !call.stream;
   const live = call.state === 'active';
   $('call-share').hidden = !live || !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-  $('call-share').textContent = call.sharing ? 'Stop sharing' : 'Share screen';
+  $('call-share').classList.toggle('active', !!call.sharing);
+  setLabel('call-share', call.sharing ? 'Stop sharing' : 'Share screen');
+  $('call-avatar').textContent = (call.name || '?').trim().charAt(0).toUpperCase();
+  $('call').classList.toggle('has-local', !!call.stream);
   $('call-watch').hidden = !live;
   if (typeof syncCallMini === 'function') syncCallMini();
-  $('call-end').textContent = ringing ? 'Decline' : (call.state === 'calling' ? 'Cancel' : 'Hang up');
+  setLabel('call-end', ringing ? 'Decline' : (call.state === 'calling' ? 'Cancel' : 'Hang up'));
   $('call').classList.toggle('live', call.state === 'active');
 }
 
@@ -75,9 +80,11 @@ function endCallLocally(message) {
     if (c.stream) c.stream.getTracks().forEach(t => t.stop());
   }
   $('call-remote').srcObject = null; $('call-local').srcObject = null;
-  $('call').hidden = true; $('call').classList.remove('live', 'mini', 'sharing', 'mysharing');
+  $('call').hidden = true; $('call').classList.remove('live', 'mini', 'sharing', 'mysharing', 'has-local');
   if (typeof syncCallMini === 'function') syncCallMini();
-  $('call-mic').textContent = 'Mute'; $('call-cam').textContent = 'Camera off';
+  $('call-mic').classList.remove('off'); $('call-cam').classList.remove('off');
+  $('call-mic').setAttribute('aria-pressed', 'false'); $('call-cam').setAttribute('aria-pressed', 'false'); $('call-muted').hidden = true;
+  setLabel('call-mic', 'Mute'); setLabel('call-cam', 'Camera off'); $('call-share').classList.remove('active');
   if (message) toast(message);
 }
 
@@ -94,7 +101,7 @@ async function makePeer() {
   pc.onconnectionstatechange = () => {
     if (!call || call.pc !== pc) return;
     clearTimeout(call.dropTimer);
-    if (pc.connectionState === 'connected') callUi('active', 'Connected');
+    if (pc.connectionState === 'connected') { callUi('active', 'Connected'); if (call.muted) sendSignal({muted: true}); }
     else if (pc.connectionState === 'disconnected') {
       callUi(call.state, 'Connection lost, trying to reconnect…');
       call.dropTimer = setTimeout(() => hangUp('Call ended: the connection was lost.'), DISCONNECT_MS);
@@ -113,6 +120,7 @@ async function flushIce() {
 async function onSignal(ev) {
   if (!call || call.id !== ev.call_id) return;
   const d = ev.data || {};
+  if (typeof d.muted === 'boolean') { $('call-muted').hidden = !d.muted; return; }  // the other side (un)muted
   if (typeof d.share === 'boolean') { $('call').classList.toggle('sharing', d.share); return; }  // the other side shows a screen
   try {
     if (d.sdp && d.sdp.type === 'offer' && call.role === 'callee') {
@@ -219,16 +227,29 @@ function callSocketClosed() { if (call) endCallLocally('Call ended: you lost you
 $('chat-call').onclick = startCall;
 $('call-accept').onclick = answerCall;
 $('call-end').onclick = () => hangUp();
-$('call-mic').onclick = () => {
+// Mute and camera keep their own state (call.muted / call.camOff) instead of guessing it from the track,
+// so the button, the tooltip and what the other person hears can never disagree.
+function setMuted(m) {
   if (!call || !call.stream) return;
-  const t = call.stream.getAudioTracks()[0]; if (!t) return;
-  t.enabled = !t.enabled; $('call-mic').textContent = t.enabled ? 'Mute' : 'Unmute';
-};
-$('call-cam').onclick = () => {
+  const tracks = call.stream.getAudioTracks();
+  if (!tracks.length) { toast('No microphone found.'); return; }
+  call.muted = m;
+  tracks.forEach(t => { t.enabled = !m; });
+  const b = $('call-mic'); b.classList.toggle('off', m); b.setAttribute('aria-pressed', String(m));
+  setLabel('call-mic', m ? 'Unmute' : 'Mute');
+  sendSignal({muted: m});                     // so the other side can show a "Muted" badge
+}
+function setCamOff(off) {
   if (!call || !call.stream) return;
-  const t = call.stream.getVideoTracks()[0]; if (!t) return;
-  t.enabled = !t.enabled; $('call-cam').textContent = t.enabled ? 'Camera off' : 'Camera on';
-};
+  const tracks = call.stream.getVideoTracks();
+  if (!tracks.length) { toast('No camera found.'); return; }
+  call.camOff = off;
+  tracks.forEach(t => { t.enabled = !off; });
+  const b = $('call-cam'); b.classList.toggle('off', off); b.setAttribute('aria-pressed', String(off));
+  setLabel('call-cam', off ? 'Camera on' : 'Camera off');
+}
+$('call-mic').onclick = () => { if (call) setMuted(!call.muted); };
+$('call-cam').onclick = () => { if (call) setCamOff(!call.camOff); };
 
 // ---- screen sharing ---------------------------------------------------------------------------
 // For anything that cannot be embedded (Netflix, Twitch, a local file...). The screen replaces the camera
@@ -291,3 +312,21 @@ async function stopShare(notify) {
 }
 
 $('call-share').onclick = toggleShare;
+
+// ---- drag the small call tile around while watching a video ---------------------------------------
+(function () {
+  const el = $('call'); let d = null;
+  el.addEventListener('pointerdown', e => {
+    if (!el.classList.contains('mini') || e.target.closest('button, #call-controls')) return;
+    const r = el.getBoundingClientRect(); d = {dx: e.clientX - r.left, dy: e.clientY - r.top};
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* not supported */ }
+  });
+  el.addEventListener('pointermove', e => {
+    if (!d) return;
+    const x = Math.min(Math.max(0, e.clientX - d.dx), innerWidth - el.offsetWidth);
+    const y = Math.min(Math.max(0, e.clientY - d.dy), innerHeight - el.offsetHeight);
+    el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.right = 'auto';
+  });
+  el.addEventListener('pointerup', () => { d = null; });
+  el.addEventListener('pointercancel', () => { d = null; });
+})();

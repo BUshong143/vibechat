@@ -1,0 +1,9 @@
+<div class="af{% if field.errors %} bad{% endif %}">
+  <label for="{{ field.id_for_label }}">{{ field.label }}{% if not field.field.required %}<em>optional</em>{% endif %}</label>
+  <div class="ctl">
+    <svg class="i"><use href="#i-{% if field.name == 'email' %}mail{% elif 'password' in field.name %}lock{% else %}user{% endif %}"/></svg>
+    {{ field }}
+  </div>
+  {% for e in field.errors %}<p class="ferr" role="alert">{{ e }}</p>{% endfor %}
+  {% if field.help_text %}<details class="fhelp"><summary>Requirements</summary>{{ field.help_text|safe }}</details>{% endif %}
+</div>

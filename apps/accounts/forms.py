@@ -1,7 +1,7 @@
 from io import BytesIO
 
 from django import forms
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -15,10 +15,38 @@ AVATAR_MAX_PIXELS = 25_000_000
 AVATAR_SIZE = 256
 
 
+def _tune(field, **attrs):
+    """Phone-friendly input hints: no auto-capitalise, no autofocus (it pops the keyboard over the page)."""
+    field.widget.attrs.pop("autofocus", None)
+    field.widget.attrs.update(attrs)
+
+
+class LoginForm(AuthenticationForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["username"].label = "Username"
+        _tune(self.fields["username"], placeholder="Your username", autocomplete="username",
+              autocapitalize="none", autocorrect="off", spellcheck="false")
+        _tune(self.fields["password"], placeholder="Your password", autocomplete="current-password")
+
+
 class RegisterForm(UserCreationForm):
     class Meta:
         model = User
         fields = ("username", "email")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["username"].label = "Username"
+        self.fields["email"].label = "Email"
+        self.fields["password1"].label = "Password"
+        self.fields["password2"].label = "Confirm password"
+        self.fields["password2"].help_text = ""   # the password rules are shown once, under the first field
+        _tune(self.fields["username"], placeholder="Pick a username", autocomplete="username",
+              autocapitalize="none", autocorrect="off", spellcheck="false")
+        _tune(self.fields["email"], placeholder="you@example.com", autocomplete="email", inputmode="email")
+        _tune(self.fields["password1"], placeholder="Create a password", autocomplete="new-password")
+        _tune(self.fields["password2"], placeholder="Repeat the password", autocomplete="new-password")
 
 
 def process_avatar(upload):
